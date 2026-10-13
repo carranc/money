@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>World Money Converter</title>
+<style>
+  :root{color-scheme:light dark;font-family:system-ui,sans-serif}
+  body{max-width:520px;margin:0 auto;padding:16px}
+  h1{font-size:1.4rem}
+  label{display:block;margin:12px 0 4px}
+  input{font:inherit;padding:6px;box-sizing:border-box}
+  .row{display:flex;gap:6px;margin-bottom:6px;align-items:center}
+  .row .amt{flex:2;min-width:0}.row .cur{flex:1;min-width:0;text-transform:uppercase}
+  .row .val{flex:2;text-align:right;font-variant-numeric:tabular-nums}
+  button{font:inherit;padding:6px 10px}
+  #total{font-size:2rem;font-weight:700;margin:8px 0}
+  #status{font-size:.85rem;opacity:.75}
+</style>
+</head>
+<body>
+<h1>World money converter</h1>
+
+<label for="target">Convert everything to (currency code)</label>
+<input id="target" value="EUR" maxlength="3" style="text-transform:uppercase;width:5em">
+
+<label>Your money (amount, currency code)</label>
+<div id="rows"></div>
+<button id="add">+ Add row</button>
+
+<label>Estimated total</label>
+<div id="total">0.00</div>
+<div id="status">Loading rates…</div>
+
+<script>
+const DEFAULTS = {HUF:7000,CAD:140,BRL:20,VES:21050,MXN:1330,COP:50000,MYR:2,GBP:15,
+  PEN:30,KYD:1,PHP:70,NIO:60,CRC:6000,EUR:10,TRY:5000,JPY:0.01};
+const KEY = "wmc-v1";
+let state;
+try { state = JSON.parse(localStorage.getItem(KEY)); } catch(e) {}
+if (!state || !state.rows) state = {target:"EUR", rows:Object.entries(DEFAULTS).map(([c,a])=>({c,a}))};
+
+const $ = id => document.getElementById(id);
+let rates = null, updated = "";
+
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){} }
+
+function render(){
+  $("target").value = state.target;
+  $("rows").innerHTML = "";
+  state.rows.forEach((r,i)=>{
+    const d = document.createElement("div"); d.className = "row";
+    d.innerHTML = `<input class="amt" type="number" step="any" value="${r.a}">
+      <input class="cur" maxlength="3" value="${r.c}">
+      <span class="val"></span><button title="Remove">✕</button>`;
+    const [amt,cur,,del] = d.children;
+    amt.oninput = () => { r.a = parseFloat(amt.value)||0; save(); update(); };
+    cur.oninput = () => { r.c = cur.value.toUpperCase(); save(); update(); };
+    del.onclick = () => { state.rows.splice(i,1); save(); render(); };
+    $("rows").appendChild(d);
+  });
+  update();
+}
+
+function update(){
+  if (!rates) return;
+  let total = 0, missing = [];
+  [...$("rows").children].forEach((d,i)=>{
+    const r = state.rows[i], rate = rates[r.c], out = d.querySelector(".val");
+    if (!rate){ out.textContent = "no rate"; if(r.c) missing.push(r.c); return; }
+    const v = r.a / rate; total += v;
+    out.textContent = v.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+  });
+  $("total").textContent = total.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) + " " + state.target;
+  $("status").textContent = "Rates updated: " + updated + (missing.length ? " · No rate for: " + missing.join(", ") : "");
+}
+
+async function loadRates(){
+  $("status").textContent = "Loading rates…";
+  try{
+    const r = await fetch("https://open.er-api.com/v6/latest/" + state.target);
+    const j = await r.json();
+    if (j.result !== "success") throw new Error(j["error-type"]||"bad response");
+    rates = j.rates; updated = j.time_last_update_utc; update();
+  }catch(e){ rates = null; $("status").textContent = "Rate fetch failed: " + e.message; }
+}
+
+$("target").onchange = () => { state.target = $("target").value.toUpperCase(); save(); loadRates(); };
+$("add").onclick = () => { state.rows.push({c:"",a:0}); save(); render(); };
+render(); loadRates();
+</script>
+</body>
+</html>
